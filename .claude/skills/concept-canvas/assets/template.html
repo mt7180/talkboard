@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- ✏️ EDIT: page title -->
+<title>Konzept-Canvas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<style>
+  /* ── Theme tokens ── adjust --accent to fit the subject if you like ── */
+  :root{
+    --paper:#F6F7F9;         /* cool near-white */
+    --surface:#FFFFFF;
+    --ink:#1B2432;           /* deep blue-ink */
+    --ink-soft:#5A6577;
+    --accent:#0E7C86;        /* petrol — clickable knowledge */
+    --accent-soft:#E3F1F2;
+    --pin:#D97706;           /* amber — user annotations */
+    --pin-soft:#FDF0DC;
+    --line:#E2E6EC;
+    --radius:10px;
+    --display:'Bricolage Grotesque',system-ui,sans-serif;
+    --body:'Instrument Sans',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    *{transition:none!important;animation:none!important}
+  }
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--body);font-size:1rem;line-height:1.5;
+    padding-bottom:5.5rem;
+  }
+  header.canvas-head{
+    max-width:46rem;margin:0 auto;padding:2.4rem 1.4rem .8rem;
+  }
+  .eyebrow{
+    font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;
+  }
+  h1{
+    font-family:var(--display);font-weight:700;font-size:clamp(1.9rem,4.5vw,2.7rem);
+    line-height:1.15;margin:.4rem 0 .5rem;
+  }
+  .lede{color:var(--ink-soft);font-size:1.08rem;margin:0}
+  .howto{
+    max-width:46rem;margin:1.2rem auto 0;padding:.75rem 1.4rem;
+    display:flex;gap:.6rem;align-items:baseline;
+    color:var(--ink-soft);font-size:.88rem;
+  }
+  .howto .dot{color:var(--pin);font-size:1.1rem;line-height:1}
+  main{max-width:46rem;margin:0 auto;padding:0 1.4rem}
+  h2{font-family:var(--display);font-weight:700;font-size:1.32rem;margin:0 0 .4rem}
+  p{margin:.4rem 0}
+  ul,ol{margin:.4rem 0;padding-left:1.3rem}
+  li{margin:.25rem 0}
+  li::marker{color:var(--accent)}
+  code{background:var(--accent-soft);padding:.1em .35em;border-radius:5px;font-size:.9em}
+
+  /* ── Annotatable sections ── */
+  section.annot{
+    position:relative;background:var(--surface);
+    border:1px solid var(--line);border-radius:var(--radius);
+    padding:1.15rem 1.4rem;margin:.8rem 0;
+    cursor:pointer;transition:border-color .15s, box-shadow .15s;
+  }
+  section.annot:hover,figure.annot:hover{border-color:var(--accent)}
+  section.annot:focus-visible,figure.annot:focus-visible{
+    outline:2px solid var(--accent);outline-offset:2px;
+  }
+  figure.diagram{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);padding:1rem;margin:.8rem 0;
+    position:relative;cursor:pointer;overflow-x:auto;
+  }
+  figure.diagram figcaption{
+    font-size:.85rem;color:var(--ink-soft);margin-top:.5rem;text-align:center;
+  }
+  pre.mermaid{margin:0;display:flex;justify-content:center}
+  pre.mermaid[data-unrendered]{
+    display:block;white-space:pre-wrap;font-family:ui-monospace,monospace;
+    font-size:.85rem;color:var(--ink-soft);background:var(--accent-soft);
+    padding:.8rem;border-radius:7px;
+  }
+  .mermaid svg{max-width:100%;height:auto}
+  svg .node{cursor:pointer}
+  svg .node:hover rect,svg .node:hover circle,svg .node:hover polygon{
+    stroke:var(--pin)!important;stroke-width:2.5px!important;
+  }
+
+  /* annotation pin badge */
+  .has-note::after{
+    content:attr(data-pin);position:absolute;top:-.55rem;right:-.55rem;
+    min-width:1.3rem;height:1.3rem;padding:0 .3rem;border-radius:1rem;
+    background:var(--pin);color:#fff;font-size:.75rem;font-weight:600;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 1px 4px rgba(0,0,0,.2);
+  }
+  .node-pin{fill:var(--pin)}
+
+  /* ── Comment popover ── */
+  .popover{
+    position:fixed;z-index:60;width:min(22rem,calc(100vw - 2rem));
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);box-shadow:0 10px 34px rgba(27,36,50,.18);
+    padding:.9rem;display:none;
+  }
+  .popover.open{display:block}
+  .popover .target{
+    font-size:.78rem;font-weight:600;color:var(--accent);
+    letter-spacing:.06em;text-transform:uppercase;margin-bottom:.4rem;
+  }
+  .popover textarea{
+    width:100%;min-height:5.2rem;resize:vertical;
+    font:inherit;font-size:.95rem;color:var(--ink);
+    border:1px solid var(--line);border-radius:7px;padding:.55rem;
+  }
+  .popover textarea:focus-visible{outline:2px solid var(--pin);border-color:transparent}
+  .popover .row{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.6rem}
+  button{
+    font:inherit;font-weight:600;font-size:.9rem;border-radius:8px;
+    padding:.5rem .95rem;cursor:pointer;border:1px solid transparent;
+  }
+  button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  .btn-primary{background:var(--pin);color:#fff}
+  .btn-primary:hover{filter:brightness(1.06)}
+  .btn-ghost{background:transparent;color:var(--ink-soft);border-color:var(--line)}
+  .btn-danger{background:transparent;color:#B4231F;border-color:transparent;padding-left:.4rem}
+  @media (max-width:640px){
+    .popover{left:1rem!important;right:1rem;bottom:1rem;top:auto!important;width:auto}
+  }
+
+  /* ── Action bar + list panel ── */
+  .bar{
+    position:fixed;left:0;right:0;bottom:0;z-index:50;
+    background:var(--surface);border-top:1px solid var(--line);
+    display:flex;align-items:center;gap:.8rem;
+    padding:.7rem clamp(1rem,4vw,2rem);
+  }
+  .bar .count{font-size:.9rem;color:var(--ink-soft);margin-right:auto}
+  .bar .count b{color:var(--pin)}
+  .btn-send{background:var(--accent);color:#fff;padding:.6rem 1.2rem}
+  .btn-send:hover{filter:brightness(1.08)}
+  .btn-send:disabled{background:var(--line);color:var(--ink-soft);cursor:default}
+  .panel{
+    position:fixed;right:0;top:0;bottom:4.5rem;z-index:55;width:min(21rem,90vw);
+    background:var(--surface);border-left:1px solid var(--line);
+    transform:translateX(100%);transition:transform .2s ease;
+    padding:1.1rem;overflow-y:auto;
+  }
+  .panel.open{transform:none}
+  .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem}
+  .panel h3{font-family:var(--display);margin:0;font-size:1.1rem}
+  .panel-close{
+    background:transparent;border:none;color:var(--ink-soft);
+    font-size:1.4rem;line-height:1;padding:.1rem .5rem;cursor:pointer;
+  }
+  .panel-close:hover{color:var(--ink)}
+  .panel .item{
+    border:1px solid var(--line);border-left:3px solid var(--pin);
+    border-radius:8px;padding:.6rem .7rem;margin-bottom:.6rem;font-size:.9rem;
+  }
+  .panel .item .lbl{font-weight:600;font-size:.8rem;color:var(--accent)}
+  .panel .item p{margin:.25rem 0 .3rem;white-space:pre-wrap}
+  .done{
+    max-width:46rem;margin:1rem auto;padding:1rem 1.4rem;
+    background:var(--accent-soft);border-radius:var(--radius);
+    color:var(--ink);display:none;
+  }
+
+  /* ── Confirm modal (server shutdown) ── */
+  .modal-backdrop{
+    position:fixed;inset:0;z-index:70;background:rgba(27,36,50,.38);
+    display:none;align-items:center;justify-content:center;padding:1rem;
+  }
+  .modal-backdrop.open{display:flex}
+  .modal{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);box-shadow:0 18px 50px rgba(27,36,50,.28);
+    padding:1.4rem 1.5rem;width:min(24rem,100%);
+  }
+  .modal h3{font-family:var(--display);margin:0 0 .5rem;font-size:1.15rem}
+  .modal p{margin:0 0 1rem;color:var(--ink-soft);font-size:.95rem}
+  .modal .row{display:flex;gap:.5rem;justify-content:flex-end}
+  .btn-stop{background:transparent;color:var(--ink-soft);border-color:var(--line)}
+  .btn-stop:disabled{color:var(--line);cursor:default}
+</style>
+</head>
+<body>
+
+<header class="canvas-head">
+  <!-- ✏️ EDIT: eyebrow, title, lede -->
+  <div class="eyebrow">Konzept-Canvas · v1</div>
+  <h1>Titel des Konzepts</h1>
+  <p class="lede">Ein Satz, der sagt, was der Leser nach diesem Dokument verstanden haben wird.</p>
+</header>
+
+<div class="howto" role="note">
+  <span class="dot">●</span>
+  <span>Klicke auf einen Abschnitt oder Diagramm-Knoten, um einen Kommentar zu hinterlassen. Unten rechts schickst du alles gesammelt an Claude.</span>
+</div>
+
+<main id="content">
+  <!-- ✏️ EDIT: replace everything inside <main> with your sections.
+       Pattern: <section class="annot" data-annot="section:ID" data-label="Label"> …
+       Diagrams: <figure class="diagram annot" data-annot="diagram:ID" data-label="Label">
+                   <pre class="mermaid"> …mermaid syntax… </pre><figcaption>…</figcaption></figure> -->
+
+  <section class="annot" data-annot="section:overview" data-label="Überblick" tabindex="0">
+    <h2>Überblick</h2>
+    <p>Beispielabschnitt — ersetzen.</p>
+  </section>
+
+  <section class="annot" data-annot="section:flow" data-label="Ablauf" tabindex="0">
+    <h2>Ablauf</h2>
+    <p>Beispiel mit Diagramm — ersetzen.</p>
+    <figure class="diagram annot" data-annot="diagram:example-flow" data-label="Beispiel-Flow" tabindex="0">
+      <pre class="mermaid">
+flowchart LR
+  a[Start] --> b[Verarbeitung] --> c[Ende]
+      </pre>
+      <figcaption>Beispiel-Diagramm — ersetzen.</figcaption>
+    </figure>
+  </section>
+</main>
+
+<p class="done" id="doneMsg">✓ Annotationen gesendet — du kannst zurück zu Claude wechseln.</p>
+
+<!-- ── Fixed UI (do not edit below) ── -->
+<div class="popover" id="popover" role="dialog" aria-label="Kommentar">
+  <div class="target" id="popTarget"></div>
+  <textarea id="popText" placeholder="Dein Kommentar, deine Frage …"></textarea>
+  <div class="row">
+    <button class="btn-danger" id="popDelete" hidden>Löschen</button>
+    <button class="btn-ghost" id="popCancel">Abbrechen</button>
+    <button class="btn-primary" id="popSave">Speichern</button>
+  </div>
+</div>
+
+<aside class="panel" id="panel" aria-label="Alle Kommentare">
+  <div class="panel-head">
+    <h3>Deine Kommentare</h3>
+    <button class="panel-close" id="panelClose" type="button" aria-label="Liste schließen">×</button>
+  </div>
+  <div id="panelList"></div>
+</aside>
+
+<div class="bar">
+  <span class="count" id="count">Noch keine Kommentare</span>
+  <button class="btn-stop" id="stopBtn" hidden>Server beenden</button>
+  <button class="btn-ghost" id="listBtn">Liste</button>
+  <button class="btn-send" id="sendBtn" disabled>An Claude senden</button>
+</div>
+
+<div class="modal-backdrop" id="stopModal" role="dialog" aria-modal="true" aria-label="Server beenden">
+  <div class="modal">
+    <h3>Server beenden?</h3>
+    <p id="stopModalText">Der lokale Server wird gestoppt und Claude wartet nicht mehr auf Kommentare. Noch nicht gesendete Kommentare gehen dabei verloren.</p>
+    <div class="row">
+      <button class="btn-ghost" id="stopCancel">Abbrechen</button>
+      <button class="btn-primary" id="stopConfirm">Beenden</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="sendModal" role="dialog" aria-modal="true" aria-label="An Claude senden">
+  <div class="modal">
+    <h3>An Claude senden?</h3>
+    <p id="sendModalText">Deine Kommentare werden an Claude übermittelt; danach wartet der Server nicht mehr auf weitere.</p>
+    <div class="row">
+      <button class="btn-ghost" id="sendCancel">Abbrechen</button>
+      <button class="btn-send" id="sendConfirm">An Claude senden</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ✏️ EDIT: doc slug + title (used in the TOON header) */
+const CANVAS_META = { doc: "example-canvas", title: "Titel des Konzepts" };
+
+/* ── Do not edit below this line ─────────────────────────────────────── */
+const store = new Map();   // target -> {target,label,comment}
+let currentTarget = null, currentLabel = null, currentNodeEl = null;
+let serverAvailable = false;
+let sessionEnded = false;   // true once sent or the server was shut down
+
+const $ = id => document.getElementById(id);
+const pop = $("popover"), popText = $("popText");
+
+fetch("/ping").then(r=>{
+  serverAvailable=r.ok;
+  $("stopBtn").hidden=!r.ok;   // only meaningful when a server is actually running
+  refreshBar();
+}).catch(()=>refreshBar());
+
+/* ── Mermaid ──
+   Rendered in a guarded block: if the CDN fails to load `mermaid`, the diagrams
+   simply stay as text, but the section/figure comment UI (wired below, and again
+   here after render) must never be taken down with it. */
+function initMermaid(){
+  if (typeof mermaid === "undefined"){
+    console.warn("mermaid unavailable — diagrams not rendered; comments still work");
+    document.querySelectorAll("pre.mermaid").forEach(p=>p.setAttribute("data-unrendered","1"));
+    return;
+  }
+  try{
+    mermaid.initialize({ startOnLoad:false, theme:"neutral", securityLevel:"strict",
+      themeVariables:{ fontFamily:"Instrument Sans, system-ui, sans-serif" }});
+    mermaid.run({ querySelector:"pre.mermaid" })
+      .then(attachNodeHandlers)
+      .catch(e=>console.warn("mermaid.run failed:", e));
+  }catch(e){ console.warn("mermaid.initialize failed:", e); }
+}
+
+function nodeIdFrom(el){
+  const m = /^(?:flowchart|state)-(.+?)(?:-\d+)?$/.exec(el.id || "");
+  if (m) return m[1];
+  const t = (el.textContent || "node").trim().slice(0,40);
+  return t.toLowerCase().replace(/[^a-z0-9äöüß]+/g,"-");
+}
+function attachNodeHandlers(){
+  document.querySelectorAll(".mermaid svg .node").forEach(node=>{
+    node.setAttribute("tabindex","0");
+    const open = ev => {
+      ev.stopPropagation();
+      const id = nodeIdFrom(node);
+      openPopover("node:"+id, (node.textContent||id).trim(), ev, node);
+    };
+    node.addEventListener("click", open);
+    node.addEventListener("keydown", ev=>{ if(ev.key==="Enter") open(ev); });
+  });
+}
+
+/* ── Section / figure clicks ── */
+document.querySelectorAll(".annot").forEach(el=>{
+  const open = ev => {
+    if (ev.target.closest("a,button,svg .node")) return;
+    ev.stopPropagation();
+    openPopover(el.dataset.annot, el.dataset.label, ev, null);
+  };
+  el.addEventListener("click", open);
+  el.addEventListener("keydown", ev=>{
+    if (ev.key==="Enter" && ev.target===el) open(ev);
+  });
+});
+
+/* Render diagrams last — the comment UI above is already live regardless of Mermaid. */
+initMermaid();
+
+/* ── Popover ── */
+function openPopover(target,label,ev,nodeEl){
+  currentTarget=target; currentLabel=label; currentNodeEl=nodeEl;
+  $("popTarget").textContent=label;
+  popText.value = store.has(target) ? store.get(target).comment : "";
+  $("popDelete").hidden = !store.has(target);
+  pop.classList.add("open");
+  const x=Math.min((ev.clientX||40), innerWidth-360);
+  const y=Math.min((ev.clientY||40)+12, innerHeight-220);
+  pop.style.left=Math.max(12,x)+"px"; pop.style.top=Math.max(12,y)+"px";
+  popText.focus();
+}
+function closePopover(){ pop.classList.remove("open"); currentTarget=null; }
+$("popCancel").onclick=closePopover;
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closePopover(); });
+
+$("popSave").onclick=()=>{
+  const text=popText.value.trim();
+  if(!currentTarget) return;
+  if(text){ store.set(currentTarget,{target:currentTarget,label:currentLabel,comment:text}); }
+  else{ store.delete(currentTarget); }
+  markElements(); refreshBar(); renderPanel(); closePopover();
+};
+$("popDelete").onclick=()=>{
+  store.delete(currentTarget);
+  markElements(); refreshBar(); renderPanel(); closePopover();
+};
+
+/* ── Visual pins ── */
+function markElements(){
+  let n=0;
+  document.querySelectorAll(".annot").forEach(el=>{
+    if(store.has(el.dataset.annot)){ n++; el.classList.add("has-note"); el.dataset.pin=n; }
+    else{ el.classList.remove("has-note"); delete el.dataset.pin; }
+  });
+  document.querySelectorAll(".mermaid svg .node").forEach(node=>{
+    const id="node:"+nodeIdFrom(node);
+    node.querySelector(".node-pin")?.remove();
+    if(store.has(id)){
+      const c=document.createElementNS("http://www.w3.org/2000/svg","circle");
+      c.setAttribute("r","6"); c.setAttribute("cx","0"); c.setAttribute("cy","0");
+      c.setAttribute("class","node-pin");
+      node.appendChild(c);
+    }
+  });
+}
+
+/* ── Bar + panel ── */
+function refreshBar(){
+  const n=store.size;
+  $("count").innerHTML = n ? `<b>${n}</b> Kommentar${n>1?"e":""}` : "Noch keine Kommentare";
+  const btn=$("sendBtn");
+  btn.disabled = n===0;
+  btn.textContent = serverAvailable ? "An Claude senden" : "Als .toon herunterladen";
+}
+const panel=$("panel");
+function openPanel(){ panel.classList.add("open"); renderPanel(); }
+function closePanel(){ panel.classList.remove("open"); }
+$("listBtn").onclick=()=>{ panel.classList.contains("open") ? closePanel() : openPanel(); };
+$("panelClose").onclick=closePanel;
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && panel.classList.contains("open")) closePanel(); });
+document.addEventListener("click",e=>{
+  if(!panel.classList.contains("open")) return;
+  if(e.target.closest("#panel,#listBtn")) return;
+  closePanel();
+}, true);   // capture phase: section/figure handlers call stopPropagation() on bubble,
+            // which would otherwise stop this listener from ever seeing their clicks
+function renderPanel(){
+  const list=$("panelList"); list.innerHTML="";
+  if(!store.size){ list.innerHTML='<p style="color:var(--ink-soft)">Noch nichts notiert.</p>'; return; }
+  for(const a of store.values()){
+    const d=document.createElement("div"); d.className="item";
+    d.innerHTML=`<div class="lbl"></div><p></p>`;
+    d.querySelector(".lbl").textContent=a.label;
+    d.querySelector("p").textContent=a.comment;
+    const del=document.createElement("button");
+    del.className="btn-danger"; del.textContent="Löschen";
+    del.onclick=()=>{ store.delete(a.target); markElements(); refreshBar(); renderPanel(); };
+    d.appendChild(del); list.appendChild(d);
+  }
+}
+
+/* ── TOON encoder (mirror of the Python one) ── */
+function toonScalar(v){
+  v=String(v);
+  if(/[,"\n\r]/.test(v)||/^\s|\s$/.test(v)||v===""||/^[#-]/.test(v)){
+    return '"'+v.replace(/\\/g,"\\\\").replace(/"/g,'\\"').replace(/\n/g,"\\n").replace(/\r/g,"")+'"';
+  }
+  return v;
+}
+function buildToon(){
+  const rows=[...store.values()];
+  const lines=[
+    "doc: "+toonScalar(CANVAS_META.doc),
+    "title: "+toonScalar(CANVAS_META.title),
+    "exported: "+new Date().toISOString().replace(/\.\d+Z$/,"Z"),
+    `annotations[${rows.length}]{id,target,label,comment}:`
+  ];
+  rows.forEach((a,i)=>lines.push("  "+[i+1,a.target,a.label,a.comment].map(toonScalar).join(",")));
+  return lines.join("\n")+"\n";
+}
+
+/* ── Send / download ──
+   Clicking the bar button only *opens* a confirmation on the real send-to-Claude
+   path, so the send is a deliberate two-step act. The file-download fallback
+   (no server) needs no confirm — it just saves a local file. */
+const sendModal=$("sendModal");
+$("sendBtn").onclick=()=>{
+  if(!store.size) return;
+  if(serverAvailable){
+    $("sendModalText").textContent =
+      `${store.size} Kommentar${store.size>1?"e":""} ${store.size>1?"werden":"wird"} an Claude übermittelt; danach wartet der Server nicht mehr auf weitere.`;
+    sendModal.classList.add("open");
+    $("sendConfirm").focus();
+  } else {
+    doSend();   // no server: straight to download
+  }
+};
+$("sendCancel").onclick=()=>sendModal.classList.remove("open");
+sendModal.addEventListener("click",e=>{ if(e.target===sendModal) sendModal.classList.remove("open"); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && sendModal.classList.contains("open")) sendModal.classList.remove("open"); });
+$("sendConfirm").onclick=()=>{ sendModal.classList.remove("open"); doSend(); };
+
+async function doSend(){
+  const payload={ doc:CANVAS_META.doc, title:CANVAS_META.title,
+    annotations:[...store.values()].map((a,i)=>({id:i+1,...a})) };
+  if(serverAvailable){
+    try{
+      const r=await fetch("/annotations",{method:"POST",
+        headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      if(r.ok){ showDone(); return; }
+    }catch(e){ /* fall through to download */ }
+  }
+  const blob=new Blob([buildToon()],{type:"text/plain;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=CANVAS_META.doc+".annotations.toon";
+  a.click(); URL.revokeObjectURL(a.href);
+  showDone("✓ Datei heruntergeladen — bitte den Inhalt an Claude zurückgeben.");
+}
+function showDone(msg){
+  const d=$("doneMsg");
+  if(msg) d.textContent=msg;
+  d.style.display="block";
+  d.scrollIntoView({behavior:"smooth",block:"center"});
+  sessionEnded=true;               // work is handed off — stop guarding the tab
+  $("sendBtn").disabled=true;
+  /* Keep the button visible (not hidden) so it stays as visual confirmation the
+     session really ended — the tab itself can't close itself, so this is the
+     only feedback the user gets. Disable it since the server is already gone. */
+  $("stopBtn").disabled=true;
+}
+
+/* ── Shutdown the server on purpose ── */
+const stopModal=$("stopModal");
+function openStopModal(){
+  const n=store.size;
+  $("stopModalText").textContent = n
+    ? `Der lokale Server wird gestoppt und Claude wartet nicht mehr auf Kommentare. ${n} noch nicht gesendete${n>1?"":"r"} Kommentar${n>1?"e":""} ${n>1?"gehen":"geht"} dabei verloren.`
+    : "Der lokale Server wird gestoppt und Claude wartet nicht mehr auf Kommentare.";
+  stopModal.classList.add("open");
+  $("stopCancel").focus();
+}
+function closeStopModal(){ stopModal.classList.remove("open"); }
+$("stopBtn").onclick=openStopModal;
+$("stopCancel").onclick=closeStopModal;
+stopModal.addEventListener("click",e=>{ if(e.target===stopModal) closeStopModal(); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && stopModal.classList.contains("open")) closeStopModal(); });
+$("stopConfirm").onclick=async()=>{
+  closeStopModal();
+  try{ await fetch("/shutdown",{method:"POST"}); }catch(e){ /* server already gone */ }
+  serverAvailable=false;
+  showDone("✓ Server beendet — du kannst dieses Fenster schließen.");
+};
+
+/* ── Guard against accidental tab close ──
+   Fires while the session is still live — a running server is waiting, or there
+   are unsent comments — and stays silent once sent / shut down. Hard browser
+   limits apply: the prompt only appears if the user has interacted with the page
+   at least once, and its wording is fixed by the browser (not customisable). */
+window.addEventListener("beforeunload",e=>{
+  if(sessionEnded) return;
+  if(serverAvailable || store.size>0){
+    e.preventDefault();
+    e.returnValue="Der Konzept-Canvas ist noch offen.";   // non-empty for older engines
+  }
+});
+</script>
+</body>
+</html>
