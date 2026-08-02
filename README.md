@@ -1,6 +1,6 @@
 # Talkboard
 
-Inspired by the [lavish editor](https://github.com/kunchenguid/lavish-axi) - A skill that visualizes a complex concept as an interactive, annotatable HTML document instead of a long chat response. Users can review the explanation in their browser and comment directly on the specific sections for Claude to revise. Mermaid diagrams help visualize the concept, if helpful also user editable cytoscape graph sections are added. 
+A skill that visualizes a complex concept or idea as an interactive, annotatable HTML document instead of a long chat response. Users can review the explanation in their browser and comment directly on the specific sections for Claude to revise. Mermaid diagrams help visualize the concept, if helpful also user editable cytoscape graph sections are added. - Inspired by the [lavish editor](https://github.com/kunchenguid/lavish-axi) but only a leightweight skill - no installation needed (not even python dependencies)
 
 ## Why
 
