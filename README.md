@@ -1,20 +1,22 @@
-# Concept Canvas
+# Talkboard
 
-Inspired by the [lavish editor](https://github.com/kunchenguid/lavish-axi) - A skill that visualizes complex concepts as an interactive, annotatable HTML document instead of a long chat response. Users can review the explanation in their browser and comment directly on the specific sections for Claude to revise.
+Inspired by the [lavish editor](https://github.com/kunchenguid/lavish-axi) - A skill that visualizes a complex concept as an interactive, annotatable HTML document instead of a long chat response. Users can review the explanation in their browser and comment directly on the specific sections for Claude to revise. Mermaid diagrams help visualize the concept, if helpful also user editable cytoscape graph sections are added. 
 
 ## Why
 
-Long chat explanations are both - hard to grasp and also hard to give feedback on: there's no way to point at "this specific part" without quoting it back. This skill gives the explanation a structure — sections and optional Mermaid diagrams — that the user can click directly and turns their feedback into a compact, structured format Claude can process deterministically instead of re-parsing prose.
+Long chat explanations are both - hard to grasp and also hard to give feedback on: there's no way to point at "this specific part" without quoting it back. This skill gives the explanation a structure - sections and optional diagrams for visualization — that the user can click directly and turns their feedback into a compact, structured format Claude then processes and updates the html accordingly.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-  a[Claude structures the explanation and fills in the template.html] --> c[serve_and_collect.py serves it locally]
-  c --> d[User reads, clicks sections/nodes & comments]
-  d --> e[User sends]
-  e --> f[Claude reads TOON, addresses every comment]
-  
+  a[Claude structures the explanation and fills in the template.html] --> b[html file is served locally]
+  b --> c["User reads, comments & edits diagrams"]
+  c --> d[Comments are sent to stdout as TOON]
+  d --> e["Claude reads & processes every comment"]
+  e --> f{html update needed?}
+  f -->|yes: revise canvas, re-serve| b
+  f -->|no| g[Done]
 ```
 
 Claude launches the collector script as a backgrounded process and is notified automatically when it exits (submitted, timed out, or manually stopped), rather than polling for completion.
@@ -34,10 +36,6 @@ The skill triggers automatically in Claude Code when a reply would otherwise be 
 ## Output format (TOON)
 
 Annotations are returned as [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) rather than JSON - this is a flat, indentation-based format that is more token-efficient for an LLM to read back:
-
-## No local browser available
-
-If Claude is not running on the user's machine, the canvas is produced as a plain file instead of being served. The template detects the absence of a server (via a `/ping` check) and its send button switches to a local `.toon` download, which the user pastes back into the chat. The annotation format is identical either way.
 
 ## Server lifecycle
 

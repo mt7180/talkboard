@@ -1,15 +1,15 @@
 ---
-name: concept-canvas
-description: Turn a complex explanation into an interactive, annotatable HTML canvas with Mermaid diagrams instead of a long text reply. Use this whenever you are about to explain a complex concept, system architecture, process, data flow, trade-off analysis, or multi-part topic where a rich visual document would be easier to understand than prose — even if the user only says "explain X to me" and never mentions HTML. Also use it when the user asks for an "interactive explanation", "concept canvas", "annotatable doc", or wants to give feedback/annotations on an explanation that flow back to the agent as TOON.
+name: talkboard
+description: Turn a complex, multi-part explanation into an interactive, annotatable HTML document with Mermaid diagrams and editable graphs — instead of a long text reply, even when the user never mentions HTML (e.g. just "explain X to me"). Trigger for architectures, processes, data flows, trade-off comparisons, or any topic with real internal structure, and on explicit requests for a "talkboard" (or its old name "concept canvas"), an "interactive explanation", or an "annotatable doc" — or when the user wants to leave feedback that flows back to you as TOON.
 ---
 
-# Concept Canvas
+# Talkboard
 
 Explain complex concepts as an interactive HTML document the user can read in the browser, annotate with free-text comments, and send back. Annotations return to you as **TOON** (Token-Oriented Object Notation) — on stdout and as a `.toon` file — so you can process the feedback and iterate.
 
 The loop:
 
-1. You build an HTML canvas (content sections, plus a Mermaid diagram only where one genuinely helps) from the template.
+1. You build an HTML canvas (content sections, plus a Mermaid diagram or an editable graph section only where one genuinely helps) from the template.
 2. `scripts/serve_and_collect.py` serves it locally and opens the browser.
 3. The user clicks any section or diagram node, writes comments, hits **"An Claude senden"**.
 4. The script prints the annotations as TOON to stdout, writes `<name>.annotations.toon`, and exits.
@@ -26,6 +26,7 @@ Before touching HTML, outline the concept for a human reader:
 - **3–7 sections**, each one idea, ordered so understanding builds up (overview → parts → interactions → trade-offs/pitfalls → summary is a good default, not a law).
 - **Diagrams only when they earn their place — zero is a valid answer.** There is no minimum. Add a Mermaid diagram *only* when a picture conveys structure that prose genuinely struggles with; if a short paragraph or a list says it just as clearly, skip the diagram. A canvas that is all well-structured text is completely fine.
 - **When you do add one, pick whichever Mermaid diagram type actually matches the shape of the concept — don't default to flowchart.** The template renders any valid Mermaid syntax; nothing in it favors one type. Match the type to the thing you're depicting, e.g.: `flowchart` (branching flow/architecture), `sequenceDiagram` (interactions over time between actors), `stateDiagram-v2` (lifecycles), `classDiagram` (structure/relationships between entities), `erDiagram` (data relationships), `journey` (a user's path with satisfaction), `quadrantChart` (a 2x2 trade-off), `mindmap` (a hierarchy of ideas), `timeline` (events over time), `gantt` (scheduling/overlap), `pie` (simple proportions). If the concept doesn't move or branch, a diagram usually isn't the right call at all. Keep each diagram ≤ ~12 elements; split rather than cram.
+- **A Mermaid diagram is *yours* to author and revise — the reader can only comment on it, not restructure it.** For the rarer case where the point is to let the reader actually build or rearrange a node/edge structure themselves (e.g. "sketch out our service boundaries with me", "lay out your team's reporting lines"), use an **editable graph section** instead (see Step 2). It's a materially different interaction — the user drags, adds, deletes, and rewires nodes directly, and the edited structure comes back as data, not prose — so reach for it deliberately, not as a fancier default flowchart.
 - Write for understanding, not completeness: short paragraphs, concrete examples, name the "why" not just the "what". Use analogies where they genuinely carry weight.
 - **Keep it scannable, not condensed.** A section shouldn't read as a wall of prose. Open with one short orienting sentence, then break out enumerable content — steps, properties, options, pitfalls — into a `<ul>`/`<ol>` instead of folding it into a paragraph. Don't over-compress: a bullet still gets a full clause if it needs one, not just a keyword. Not every section needs a list — a section that's genuinely one continuous idea can stay prose; force a list only where the content is actually a set of parallel items.
 - Give every section and every flowchart/state node a **stable, meaningful id** (`overview`, `token-exchange`, `gateway`) — these ids become annotation targets and come back to you in the TOON, so you must be able to recognize them later.
@@ -64,6 +65,21 @@ flowchart LR
 ```
 
 **`flowchart` and `stateDiagram-v2` nodes are individually clickable** — their Mermaid ids (`gateway`, `auth`) become targets like `node:gateway`. This is a rendering detail, not a reason to prefer those types: any other Mermaid diagram type is annotated via its wrapping `figure` only (Mermaid's SVG output for `sequenceDiagram`, `classDiagram`, `erDiagram`, etc. doesn't expose the same per-element id convention), so give those figures descriptive labels — the reader can still comment on the diagram as a whole, just not on one bar/actor/slice inside it.
+
+- An **editable graph section** looks like this instead — you author the starting nodes/edges as JSON, the reader can then add/remove/rename/rewire directly in the browser (drag from a node's edge-handle to connect, double-click to rename, select + Delete to remove):
+
+```html
+<figure class="graph-figure annot" data-annot="graph:service-map" data-label="Service Map" tabindex="0">
+  <div class="graph-mount" data-graph-id="service-map"></div>
+  <script type="application/json" class="graph-data">
+    {"nodes":[{"id":"web","label":"Web App"},{"id":"api","label":"API"}],
+     "edges":[{"from":"web","to":"api","label":""}]}
+  </script>
+  <figcaption>Grober Entwurf — bau die Struktur mit mir zusammen aus.</figcaption>
+</figure>
+```
+
+  cytoscape.js (plus its edgehandles/dagre plugins) loads lazily from `esm.sh` only if a `.graph-mount` exists on the page, so canvases without one pay nothing for it. Node/edge ids follow the same rule as everywhere else: stable and meaningful, since they come back to you in the TOON. Use this sparingly — it changes the interaction contract for that one diagram from "comment on it" to "restructure it", so reserve it for cases where that's actually the point (see Step 1).
 
 Theming: the template exposes `--accent` and friends as CSS custom properties at the top. Adjust the accent to fit the subject if you like; keep the rest unless the user asks for a different look (then consult the frontend-design skill).
 
@@ -112,3 +128,5 @@ Rules for processing:
 - Questions → answer them in chat **and** judge whether the answer belongs in the canvas; usually it does — a confused reader means the document was incomplete.
 - Requested changes → revise the relevant section/diagram in the HTML.
 - If you changed the canvas, offer another round: bump the small version note in the header, re-run the collector, same loop. Stop when a round comes back empty or the user is satisfied.
+
+If the canvas has an editable graph section, three more tables (`graphs`, `graph_nodes`, `graph_edges`) follow `annotations` — present only when at least one graph section exists. They carry the graph's *full current structure* at submit time, not a diff, so compare it yourself against what you originally authored to see what the user actually changed. Note the id-prefix mismatch: a whole-figure comment on the graph shows up in `annotations` as `graph:service-map` (with the prefix), while the graph tables reference the bare id `service-map` (without it). When you revise the canvas, update that section's `graph-data` JSON to match the returned structure — don't silently discard the user's edits by re-authoring from scratch.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve a concept-canvas HTML file, collect user annotations, emit TOON.
+"""Serve a talkboard HTML file, collect user annotations, emit TOON.
 
 Workflow:
   1. Serves the given HTML file on localhost (auto-picks a free port).
@@ -72,6 +72,43 @@ def annotations_to_toon(payload: dict) -> str:
             toon_scalar(row.get("comment", "")),
         ]
         lines.append("  " + ",".join(cells))
+
+    # Editable graph sections (freeform, cytoscape-based) are a separate, optional
+    # set of tables — only emitted when at least one graph section exists, so a
+    # canvas without one produces byte-identical output to before this feature.
+    # Mirrors the JS encoder in assets/template.html; keep both in lockstep.
+    graphs = payload.get("graphs", [])
+    if not isinstance(graphs, list):
+        raise ValueError("'graphs' must be a list")
+    if graphs:
+        for g in graphs:
+            if not isinstance(g, dict):
+                raise ValueError("graph entries must be objects")
+
+        lines.append(f"graphs[{len(graphs)}]{{id,label}}:")
+        for g in graphs:
+            lines.append(
+                "  " + ",".join(toon_scalar(x) for x in (g.get("id", ""), g.get("label", "")))
+            )
+
+        node_rows = [
+            (g.get("id", ""), n.get("id", ""), n.get("label", ""))
+            for g in graphs
+            for n in (g.get("nodes") or [])
+        ]
+        lines.append(f"graph_nodes[{len(node_rows)}]{{graph,id,label}}:")
+        for row in node_rows:
+            lines.append("  " + ",".join(toon_scalar(x) for x in row))
+
+        edge_rows = [
+            (g.get("id", ""), e.get("from", ""), e.get("to", ""), e.get("label", ""))
+            for g in graphs
+            for e in (g.get("edges") or [])
+        ]
+        lines.append(f"graph_edges[{len(edge_rows)}]{{graph,from,to,label}}:")
+        for row in edge_rows:
+            lines.append("  " + ",".join(toon_scalar(x) for x in row))
+
     return "\n".join(lines) + "\n"
 
 
@@ -138,7 +175,7 @@ def free_port(preferred: int) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("html", help="Path to the concept-canvas HTML file")
+    parser.add_argument("html", help="Path to the talkboard HTML file")
     parser.add_argument("--port", type=int, default=4747)
     parser.add_argument("--timeout", type=int, default=1800, help="Seconds to wait")
     parser.add_argument("--no-open", action="store_true", help="Don't open a browser")
@@ -159,8 +196,8 @@ def main() -> int:
     thread.start()
 
     url = f"http://127.0.0.1:{port}/"
-    print(f"concept-canvas: serving {html_path.name} at {url}", flush=True)
-    print("concept-canvas: waiting for annotations …", flush=True)
+    print(f"talkboard: serving {html_path.name} at {url}", flush=True)
+    print("talkboard: waiting for annotations …", flush=True)
     if not args.no_open:
         try:
             webbrowser.open(url)
@@ -171,13 +208,13 @@ def main() -> int:
     server.shutdown()
 
     if not got_it:
-        print("concept-canvas: timeout, no annotations received", file=sys.stderr)
+        print("talkboard: timeout, no annotations received", file=sys.stderr)
         return 2
     if result.get("shutdown") and "toon" not in result:
-        print("concept-canvas: user ended the session; no annotations submitted", flush=True)
+        print("talkboard: user ended the session; no annotations submitted", flush=True)
         return 0
     if "toon" not in result:
-        print(f"concept-canvas: bad payload: {result.get('error')}", file=sys.stderr)
+        print(f"talkboard: bad payload: {result.get('error')}", file=sys.stderr)
         return 3
 
     toon = result["toon"]
@@ -187,7 +224,7 @@ def main() -> int:
     print(BEGIN_MARK)
     print(toon, end="")
     print(END_MARK)
-    print(f"concept-canvas: written to {out_file}", flush=True)
+    print(f"talkboard: written to {out_file}", flush=True)
     return 0
 
 

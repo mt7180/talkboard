@@ -87,6 +87,24 @@
     padding:.8rem;border-radius:7px;
   }
   .mermaid svg{max-width:100%;height:auto}
+
+  /* ── Editable graph sections (freeform, cytoscape-based) ── */
+  figure.graph-figure{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);padding:1rem;margin:.8rem 0;
+    position:relative;cursor:pointer;
+  }
+  figure.graph-figure figcaption{
+    font-size:.85rem;color:var(--ink-soft);margin-top:.5rem;text-align:center;
+  }
+  .graph-toolbar{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem}
+  .graph-toolbar button{padding:.35rem .7rem;font-size:.82rem}
+  .graph-hint{font-size:.78rem;color:var(--ink-soft);margin:-.15rem 0 .5rem}
+  .graph-mount{
+    position:relative;height:320px;cursor:default;
+    border:1px solid var(--line);border-radius:7px;background:var(--paper);
+  }
+  .graph-mount[data-unavailable] p{padding:1rem;color:var(--ink-soft);font-size:.9rem}
   svg .node{cursor:pointer}
   svg .node:hover rect,svg .node:hover circle,svg .node:hover polygon{
     stroke:var(--pin)!important;stroke-width:2.5px!important;
@@ -207,8 +225,10 @@
 <main id="content">
   <!-- ✏️ EDIT: replace everything inside <main> with your sections.
        Pattern: <section class="annot" data-annot="section:ID" data-label="Label"> …
-       Diagrams: <figure class="diagram annot" data-annot="diagram:ID" data-label="Label">
-                   <pre class="mermaid"> …mermaid syntax… </pre><figcaption>…</figcaption></figure> -->
+       Mermaid diagram (read-only, Claude's fixed reference): <figure class="diagram annot" data-annot="diagram:ID" data-label="Label">
+                   <pre class="mermaid"> …mermaid syntax… </pre><figcaption>…</figcaption></figure>
+       Editable graph (user can restructure it): see the "graph-figure" example below — use only when
+       genuinely asking the user to co-build/rearrange a diagram, not for every flowchart. -->
 
   <section class="annot" data-annot="section:overview" data-label="Überblick" tabindex="0">
     <h2>Überblick</h2>
@@ -226,6 +246,19 @@ flowchart LR
       <figcaption>Beispiel-Diagramm — ersetzen.</figcaption>
     </figure>
   </section>
+
+  <!-- Optional — remove this whole <figure> if no editable graph is needed for this concept.
+       Claude authors the starting nodes/edges below; the user can then add/remove/rewire/rename
+       directly in the browser. The edited structure returns as separate TOON tables (graphs/
+       graph_nodes/graph_edges), not as a free-text comment. -->
+  <figure class="graph-figure annot" data-annot="graph:example-graph" data-label="Beispiel-Graph" tabindex="0">
+    <div class="graph-mount" data-graph-id="example-graph"></div>
+    <script type="application/json" class="graph-data">
+      {"nodes":[{"id":"a","label":"Start"},{"id":"b","label":"Ende"}],
+       "edges":[{"from":"a","to":"b","label":""}]}
+    </script>
+    <figcaption>Editierbarer Graph — Knoten/Kanten frei anpassbar. Ersetzen oder Figure entfernen.</figcaption>
+  </figure>
 </main>
 
 <p class="done" id="doneMsg">✓ Annotationen gesendet — du kannst zurück zu Claude wechseln.</p>
@@ -338,7 +371,7 @@ function attachNodeHandlers(){
 /* ── Section / figure clicks ── */
 document.querySelectorAll(".annot").forEach(el=>{
   const open = ev => {
-    if (ev.target.closest("a,button,svg .node")) return;
+    if (ev.target.closest("a,button,svg .node,.graph-mount")) return;
     ev.stopPropagation();
     openPopover(el.dataset.annot, el.dataset.label, ev, null);
   };
@@ -350,6 +383,172 @@ document.querySelectorAll(".annot").forEach(el=>{
 
 /* Render diagrams last — the comment UI above is already live regardless of Mermaid. */
 initMermaid();
+
+/* ── Editable graph sections (freeform, cytoscape-based) ──
+   Lazy: cytoscape + plugins only load if a .graph-mount actually exists on the page,
+   so canvases that don't use this feature pay nothing for it. */
+const graphInstances = [];   // {id, label, cy}
+let activeGraph = null;      // last-interacted graph instance, so a global Delete key
+                              // only removes selection from the graph the user is using
+{
+  const mounts = [...document.querySelectorAll(".graph-mount")];
+  if (mounts.length) initGraphs(mounts);
+}
+
+async function initGraphs(mounts){
+  let cytoscape, edgehandles, dagre;
+  try{
+    const mods = await Promise.all([
+      import("https://esm.sh/cytoscape@3.30.0"),
+      import("https://esm.sh/cytoscape-edgehandles@4.0.1?deps=cytoscape@3.30.0"),
+      import("https://esm.sh/cytoscape-dagre@2.5.0?deps=cytoscape@3.30.0"),
+    ]);
+    [cytoscape, edgehandles, dagre] = mods.map(m=>m.default);
+  }catch(e){
+    console.warn("graph sections unavailable (CDN load failed):", e);
+    mounts.forEach(m=>{
+      m.setAttribute("data-unavailable","1");
+      m.innerHTML = "<p>Graph-Editor konnte nicht geladen werden (kein Netzwerk?). "
+        + "Die Ausgangsdaten sind trotzdem Teil der Seite.</p>";
+    });
+    return;
+  }
+  cytoscape.use(edgehandles);
+  cytoscape.use(dagre);
+
+  const cs = getComputedStyle(document.documentElement);
+  const gAccent = cs.getPropertyValue("--accent").trim() || "#0E7C86";
+  const gPin = cs.getPropertyValue("--pin").trim() || "#D97706";
+  const gInk = cs.getPropertyValue("--ink").trim() || "#1B2432";
+  const gInkSoft = cs.getPropertyValue("--ink-soft").trim() || "#5A6577";
+  const gSurface = cs.getPropertyValue("--surface").trim() || "#FFFFFF";
+
+  for(const mount of mounts){
+    const figure = mount.closest(".graph-figure");
+    const graphId = mount.dataset.graphId;
+    const label = figure?.dataset.label || graphId;
+    const dataScript = figure?.querySelector("script.graph-data");
+    let data = {nodes:[],edges:[]};
+    try{ data = JSON.parse(dataScript?.textContent || "{}"); }catch(e){ console.warn("bad graph-data for", graphId, e); }
+    buildGraph({cytoscape, mount, graphId, label, data,
+      colors:{accent:gAccent,pin:gPin,ink:gInk,inkSoft:gInkSoft,surface:gSurface}});
+  }
+  refreshBar();   // graphs loaded asynchronously — the send button may need to unlock now
+}
+
+function buildGraph({cytoscape, mount, graphId, label, data, colors}){
+  const toolbar=document.createElement("div"); toolbar.className="graph-toolbar";
+  const addBtn=mkGraphBtn("+ Knoten"), delBtn=mkGraphBtn("– Löschen"), layoutBtn=mkGraphBtn("Neu anordnen");
+  toolbar.append(addBtn, delBtn, layoutBtn);
+  mount.before(toolbar);
+  const hint=document.createElement("div"); hint.className="graph-hint";
+  hint.textContent="Doppelklick: umbenennen · vom Rand ziehen: neue Kante · auswählen + Entf: löschen";
+  mount.before(hint);
+
+  const nodes=(data.nodes||[]).map(n=>({data:{id:String(n.id), label:n.label ?? n.id}}));
+  const edges=(data.edges||[]).map((e,i)=>({data:{
+    id:`e${i}_${e.from}_${e.to}`, source:String(e.from), target:String(e.to), label:e.label||"",
+  }}));
+  const layoutOpts = ()=>({name:"dagre", rankDir:"LR", nodeSep:40, rankSep:70, edgeSep:15, animate:false, fit:true, padding:20});
+
+  const cy = cytoscape({
+    container: mount,
+    elements: [...nodes, ...edges],
+    style: [
+      { selector:"node", style:{
+        "background-color":colors.accent, "label":"data(label)", "color":"#fff",
+        "text-valign":"center","text-halign":"center","font-size":12,
+        "width":"label","height":"label","padding":"10px",
+        "shape":"roundrectangle","text-wrap":"wrap","text-max-width":140,
+      }},
+      { selector:"edge", style:{
+        "width":2,"line-color":colors.inkSoft,"target-arrow-color":colors.inkSoft,
+        "target-arrow-shape":"triangle","curve-style":"bezier",
+        "label":"data(label)","font-size":10,"color":colors.ink,
+        "text-background-color":colors.surface,"text-background-opacity":0.85,
+        "text-background-padding":2,"text-background-shape":"roundrectangle",
+      }},
+      { selector:":selected", style:{
+        "border-width":3,"border-color":colors.pin,
+        "line-color":colors.pin,"target-arrow-color":colors.pin,
+      }},
+      { selector:".eh-handle", style:{
+        "background-color":colors.pin,"width":10,"height":10,"shape":"ellipse",
+        "overlay-opacity":0,"border-width":12,"border-opacity":0,
+      }},
+      { selector:".eh-hover", style:{"background-color":colors.pin} },
+      { selector:".eh-source, .eh-target", style:{"border-width":2,"border-color":colors.pin} },
+      { selector:".eh-preview, .eh-ghost-edge", style:{
+        "line-color":colors.pin,"target-arrow-color":colors.pin,
+      }},
+    ],
+    layout: layoutOpts(),
+    wheelSensitivity: 0.2,
+  });
+
+  const entry = {id:graphId, label, cy};
+  graphInstances.push(entry);
+  cy.on("tap", ()=>{ activeGraph=entry; });
+
+  const eh = cy.edgehandles({
+    snap:true, handleNodes:"node",
+    canConnect:(s,t)=>!s.same(t),
+    edgeParams:()=>({data:{label:""}}),
+  });
+  void eh;
+
+  let counter = nodes.length;
+  addBtn.addEventListener("click", ()=>{
+    activeGraph = entry;
+    const label = prompt("Knotenbeschriftung?", "neu");
+    if (label == null) return;
+    let id;
+    do { id = `n${++counter}`; } while (cy.getElementById(id).length);
+    cy.add({data:{id, label}});
+    cy.layout(layoutOpts()).run();
+  });
+  delBtn.addEventListener("click", ()=>{
+    activeGraph = entry;
+    const sel = cy.$(":selected");
+    if (!sel.length) return;
+    sel.remove();
+  });
+  layoutBtn.addEventListener("click", ()=>{ activeGraph=entry; cy.layout(layoutOpts()).run(); });
+
+  cy.on("dbltap", "node", evt=>{
+    const n = evt.target;
+    const v = prompt("Knotenbeschriftung?", n.data("label") ?? "");
+    if (v != null) n.data("label", v);
+  });
+  cy.on("dbltap", "edge", evt=>{
+    const e = evt.target;
+    const v = prompt("Kantenbeschriftung?", e.data("label") ?? "");
+    if (v != null) e.data("label", v);
+  });
+}
+
+function mkGraphBtn(text){
+  const b=document.createElement("button");
+  b.type="button"; b.className="btn-ghost"; b.textContent=text;
+  return b;
+}
+
+document.addEventListener("keydown", ev=>{
+  if ((ev.key==="Delete"||ev.key==="Backspace") && document.activeElement===document.body && activeGraph){
+    ev.preventDefault();
+    activeGraph.cy.$(":selected").remove();
+  }
+});
+
+function collectGraphs(){
+  return graphInstances.map(g=>({
+    id:g.id, label:g.label,
+    nodes:g.cy.nodes().map(n=>({id:n.id(), label:n.data("label")||""})),
+    edges:g.cy.edges()
+      .filter(e=>!e.hasClass("eh-preview") && !e.hasClass("eh-ghost-edge"))
+      .map(e=>({from:e.source().id(), to:e.target().id(), label:e.data("label")||""})),
+  }));
+}
 
 /* ── Popover ── */
 function openPopover(target,label,ev,nodeEl){
@@ -403,7 +602,9 @@ function refreshBar(){
   const n=store.size;
   $("count").innerHTML = n ? `<b>${n}</b> Kommentar${n>1?"e":""}` : "Noch keine Kommentare";
   const btn=$("sendBtn");
-  btn.disabled = n===0;
+  /* A graph section always sends its current state, even with zero free-text
+     comments — so the button must stay enabled once at least one graph exists. */
+  btn.disabled = n===0 && graphInstances.length===0;
   btn.textContent = serverAvailable ? "An Claude senden" : "Als .toon herunterladen";
 }
 const panel=$("panel");
@@ -441,7 +642,7 @@ function toonScalar(v){
   }
   return v;
 }
-function buildToon(){
+function buildToon(graphs){
   const rows=[...store.values()];
   const lines=[
     "doc: "+toonScalar(CANVAS_META.doc),
@@ -450,6 +651,18 @@ function buildToon(){
     `annotations[${rows.length}]{id,target,label,comment}:`
   ];
   rows.forEach((a,i)=>lines.push("  "+[i+1,a.target,a.label,a.comment].map(toonScalar).join(",")));
+  /* Graph tables are only emitted when at least one graph section exists, so a
+     canvas without one produces byte-identical output to before this feature. */
+  if(graphs && graphs.length){
+    lines.push(`graphs[${graphs.length}]{id,label}:`);
+    graphs.forEach(g=>lines.push("  "+[g.id,g.label].map(toonScalar).join(",")));
+    const nodeRows=[]; graphs.forEach(g=>g.nodes.forEach(n=>nodeRows.push([g.id,n.id,n.label])));
+    lines.push(`graph_nodes[${nodeRows.length}]{graph,id,label}:`);
+    nodeRows.forEach(r=>lines.push("  "+r.map(toonScalar).join(",")));
+    const edgeRows=[]; graphs.forEach(g=>g.edges.forEach(e=>edgeRows.push([g.id,e.from,e.to,e.label])));
+    lines.push(`graph_edges[${edgeRows.length}]{graph,from,to,label}:`);
+    edgeRows.forEach(r=>lines.push("  "+r.map(toonScalar).join(",")));
+  }
   return lines.join("\n")+"\n";
 }
 
@@ -459,10 +672,13 @@ function buildToon(){
    (no server) needs no confirm — it just saves a local file. */
 const sendModal=$("sendModal");
 $("sendBtn").onclick=()=>{
-  if(!store.size) return;
+  if(!store.size && !graphInstances.length) return;
   if(serverAvailable){
+    const parts=[];
+    if(store.size) parts.push(`${store.size} Kommentar${store.size>1?"e":""}`);
+    if(graphInstances.length) parts.push(`${graphInstances.length} Graph${graphInstances.length>1?"en":""}`);
     $("sendModalText").textContent =
-      `${store.size} Kommentar${store.size>1?"e":""} ${store.size>1?"werden":"wird"} an Claude übermittelt; danach wartet der Server nicht mehr auf weitere.`;
+      `${parts.join(" und ")} ${parts.length>1||store.size>1||graphInstances.length>1?"werden":"wird"} an Claude übermittelt; danach wartet der Server nicht mehr auf weitere.`;
     sendModal.classList.add("open");
     $("sendConfirm").focus();
   } else {
@@ -475,8 +691,9 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape" && sendModal.classL
 $("sendConfirm").onclick=()=>{ sendModal.classList.remove("open"); doSend(); };
 
 async function doSend(){
+  const graphs=collectGraphs();
   const payload={ doc:CANVAS_META.doc, title:CANVAS_META.title,
-    annotations:[...store.values()].map((a,i)=>({id:i+1,...a})) };
+    annotations:[...store.values()].map((a,i)=>({id:i+1,...a})), graphs };
   if(serverAvailable){
     try{
       const r=await fetch("/annotations",{method:"POST",
@@ -484,7 +701,7 @@ async function doSend(){
       if(r.ok){ showDone(); return; }
     }catch(e){ /* fall through to download */ }
   }
-  const blob=new Blob([buildToon()],{type:"text/plain;charset=utf-8"});
+  const blob=new Blob([buildToon(graphs)],{type:"text/plain;charset=utf-8"});
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);
   a.download=CANVAS_META.doc+".annotations.toon";
